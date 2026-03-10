@@ -150,6 +150,17 @@ class ChannelManager:
             except ImportError as e:
                 logger.warning("Matrix channel not available: {}", e)
 
+        # WXAuto channel
+        if self.config.channels.wxauto.enabled:
+            try:
+                from nanobot.channels.wxauto import WXAutoChannel
+                self.channels["wxauto"] = WXAutoChannel(
+                    self.config.channels.wxauto, self.bus
+                )
+                logger.info("WXAuto channel enabled")
+            except ImportError as e:
+                logger.warning("WXAuto channel not available: {}", e)
+
         self._validate_allow_from()
 
     def _validate_allow_from(self) -> None:

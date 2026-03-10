@@ -200,6 +200,18 @@ class QQConfig(Base):
     )  # Allowed user openids (empty = public access)
 
 
+class WXAutoConfig(Base):
+    """WXAuto channel configuration for WeChat automation."""
+
+    enabled: bool = False
+    api_url: str = ""  # WXAuto API URL, e.g. "http://localhost:8080"
+    api_key: str = ""  # WXAuto API key/token
+    wxname: str = ""  # WeChat account name (optional)
+    poll_interval: int = 3  # Polling interval in seconds
+    allow_from: list[str] = Field(default_factory=list)  # Allowed chat names or IDs
+    group_policy: Literal["open", "mention"] = "open"  # How to handle group messages
+
+
 
 
 class ChannelsConfig(Base):
@@ -217,6 +229,7 @@ class ChannelsConfig(Base):
     slack: SlackConfig = Field(default_factory=SlackConfig)
     qq: QQConfig = Field(default_factory=QQConfig)
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
+    wxauto: WXAutoConfig = Field(default_factory=WXAutoConfig)
 
 
 class AgentDefaults(Base):
