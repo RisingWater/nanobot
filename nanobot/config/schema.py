@@ -208,6 +208,7 @@ class WXAutoConfig(Base):
     api_key: str = ""  # WXAuto API key/token
     wxname: str = ""  # WeChat account name (optional)
     poll_interval: int = 3  # Polling interval in seconds
+    showProgress: bool = False
     allow_from: list[str] = Field(default_factory=list)  # Allowed chat names or IDs
     group_policy: Literal["open", "mention"] = "open"  # How to handle group messages
 

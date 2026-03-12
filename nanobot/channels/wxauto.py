@@ -481,6 +481,10 @@ class WXAutoChannel(BaseChannel):
         if not self._api:
             logger.warning("WXAuto API not initialized")
             return
+        
+        if msg.metadata.get("_progress") and not self.config.showProgress:
+            logger.warning("WXAuto do not send progress")
+            return
 
         # Extract chat name from chat_id (format: "wxauto:chat_name")
         # If chat_id doesn't have prefix, use it directly
