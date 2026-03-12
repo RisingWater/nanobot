@@ -512,7 +512,7 @@ class WXAutoChannel(BaseChannel):
         while self._running and self._api:
             try:
                 # Get next new message
-                result = self._api.get_next_new_message(timeout=self.config.poll_interval)
+                result = self._api.get_next_new_message(timeout=30)
                 
                 if result.get("success") and result.get("has_message"):
                     await self._handle_incoming_message(result)
@@ -542,7 +542,7 @@ class WXAutoChannel(BaseChannel):
             if msg.get("attr") == "self":
                 logger.info(f"skip message from yourself: {msg.get('content', '')[:50]}...")
                 continue
-            
+
             msg_type = msg.get("type", "text")
             msg_content = msg.get("content", "")
             
@@ -553,7 +553,7 @@ class WXAutoChannel(BaseChannel):
                 file_id = msg.get("file_id")
                 if file_id and self._api:
                     media_dir = get_media_dir("wxauto")
-                    file_path = media_dir / f"{file_id[:16]}.jpg"
+                    file_path = media_dir / msg.get("file_name", f"{file_id[:16]}.png")
                     
                     download_result = self._api.download_file(file_id, str(file_path))
                     if download_result.get("success"):
@@ -580,7 +580,9 @@ class WXAutoChannel(BaseChannel):
                 else:
                     content_parts.append(f"[file: {msg_content}]")
             elif msg_type == "link":
-                content_parts.append(f"[link: {msg_content}]")
+                content_parts.append(f"[link: {msg.get('url', msg_content)}]")
+            elif msg_type == "voice":
+                content_parts.append(f"[voice: {msg.get('voice_to_text', msg_content)}]")
             else:
                 content_parts.append(f"[{msg_type}: {msg_content}]")
         
@@ -596,8 +598,9 @@ class WXAutoChannel(BaseChannel):
         if chat_type == "group" and self.config.group_policy == "mention":
             # Check if message mentions the bot (for WXAuto, we might need to check content)
             # For now, we'll accept all group messages in "open" mode only
-            logger.debug(f"Group message from '{chat_name}', group_policy is 'mention' - skipping")
-            return
+            if not "@{self.config.wx_name}" in content:
+                logger.debug(f"Group message from '{chat_name}', group_policy is 'mention' - skipping")
+                return
         
         logger.debug("WXAuto message from {}: {}...", chat_name, content[:50])
         
