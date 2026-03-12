@@ -429,6 +429,7 @@ class WXAutoChannel(BaseChannel):
     """
 
     name = "wxauto"
+    display_name = "WXAuto"
 
     def __init__(self, config: WXAutoConfig, bus: MessageBus):
         super().__init__(config, bus)
