@@ -539,6 +539,10 @@ class WXAutoChannel(BaseChannel):
         media_paths = []
         
         for msg in messages:
+            if msg.get("attr") == "self":
+                logger.info(f"skip message from yourself: {msg.get('content', '')[:50]}...")
+                continue
+            
             msg_type = msg.get("type", "text")
             msg_content = msg.get("content", "")
             
