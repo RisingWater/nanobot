@@ -483,7 +483,7 @@ class WXAutoChannel(BaseChannel):
             return
         
         if msg.metadata.get("_progress") and not self.config.showProgress:
-            logger.warning("WXAuto do not send progress")
+            logger.warning(f"progress: {msg.content}")
             return
 
         # Extract chat name from chat_id (format: "wxauto:chat_name")
@@ -602,7 +602,9 @@ class WXAutoChannel(BaseChannel):
         if chat_type == "group" and self.config.group_policy == "mention":
             # Check if message mentions the bot (for WXAuto, we might need to check content)
             # For now, we'll accept all group messages in "open" mode only
-            if not "@{self.config.wx_name}" in content:
+            logger.debug(f"key: @{self.config.wxname}")
+            logger.debug(f"content: {content}")
+            if not f"@{self.config.wxname}" in content:
                 logger.debug(f"Group message from '{chat_name}', group_policy is 'mention' - skipping")
                 return
         
