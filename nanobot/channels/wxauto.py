@@ -19,6 +19,8 @@ from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import WXAutoConfig
 from nanobot.utils.helpers import split_message
 
+from .wxauto_config import WXAutoChannelConfig, ChatConfig
+
 
 class WXAutoAPI:
     """WXAuto API client for WeChat automation."""
@@ -313,7 +315,7 @@ class WXAutoAPI:
 
     def download_file(self, file_id: str, file_path: str) -> Dict[str, Any]:
         """
-        Download file by file_id.
+        Download file by file_id and delete it from server after successful download.
         
         Args:
             file_id: File ID to download
@@ -345,10 +347,19 @@ class WXAutoAPI:
                 # 验证文件是否下载成功
                 if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                     logger.info(f"File downloaded successfully: {file_id} -> {file_path}")
+                    
+                    # 下载成功后删除服务器上的临时文件
+                    delete_result = self.delete_file(file_id)
+                    if delete_result.get("success"):
+                        logger.info(f"Server file deleted successfully: {file_id}")
+                    else:
+                        logger.warning(f"Failed to delete server file {file_id}: {delete_result.get('error', 'Unknown error')}")
+                    
                     return {
                         "success": True, 
                         "file_path": file_path,
-                        "file_size": os.path.getsize(file_path)
+                        "file_size": os.path.getsize(file_path),
+                        "server_file_deleted": delete_result.get("success", False)
                     }
                 else:
                     error_msg = "Downloaded file is empty or not created"
@@ -437,6 +448,18 @@ class WXAutoChannel(BaseChannel):
         self._api: Optional[WXAutoAPI] = None
         self._polling_task: Optional[asyncio.Task] = None
         self._chat_name_to_id: Dict[str, str] = {}  # Map chat names to chat IDs
+        
+        # Load chat-specific configuration
+        self._chat_config = self._load_chat_config()
+    
+    def _load_chat_config(self) -> WXAutoChannelConfig:
+        """Load chat-specific configuration from file."""
+        from nanobot.config.paths import get_runtime_subdir
+        
+        config_dir = get_runtime_subdir("wxauto_config")
+        config_path = config_dir / "chat_config.json"
+        
+        return WXAutoChannelConfig.load(config_path)
 
     async def start(self) -> None:
         """Start the WXAuto channel with polling."""
@@ -534,14 +557,21 @@ class WXAutoChannel(BaseChannel):
                 await asyncio.sleep(self.config.poll_interval)
 
     async def _handle_incoming_message(self, result: Dict[str, Any]) -> None:
-        """Handle an incoming message from WXAuto."""
+        """Handle an incoming message from WXAuto with chat-specific configuration."""
         chat_name = result.get("chat_name", "Unknown")
         chat_type = result.get("chat_type", "unknown")
         messages = result.get("messages", [])
         
+        # Get chat-specific configuration
+        chat_config = self._chat_config.get_chat_config(chat_name)
+        
         # Build content from messages
         content_parts = []
         media_paths = []
+        has_mention = False
+        
+        # Check if this is a group with mention policy
+        is_group_with_mention = (chat_type == "group" and self.config.group_policy == "mention")
         
         for msg in messages:
             if msg.get("attr") == "self":
@@ -551,63 +581,106 @@ class WXAutoChannel(BaseChannel):
             msg_type = msg.get("type", "text")
             msg_content = msg.get("content", "")
             
+            # For group messages with mention policy, check if this message has @mention
+            if is_group_with_mention and msg_type == "text":
+                if f"@{self.config.wxname}" not in msg_content:
+                    # Skip text messages without @mention in group with mention policy
+                    logger.debug(f"Skipping text message without @mention in group '{chat_name}'")
+                    continue
+                else:
+                    has_mention = True
+            
+            # Check if this message type should be processed based on config
+            should_process = False
+            if chat_config:
+                should_process = chat_config.should_process(msg_type)
+            
+            if not should_process:
+                logger.debug(f"Skipping {msg_type} message from '{chat_name}' (not enabled in config)")
+                continue
+            
+            # Process the message based on type
             if msg_type == "text":
                 content_parts.append(msg_content)
+            
             elif msg_type == "image":
                 # Download image if file_id is available
                 file_id = msg.get("file_id")
                 if file_id and self._api:
-                    media_dir = get_media_dir("wxauto")
-                    file_path = media_dir / msg.get("file_name", f"{file_id[:16]}.png")
+                    # Create media directory per chat: wxauto/{chat_name}/
+                    media_dir = get_media_dir(f"wxauto/{chat_name}")
+                    # Get filename from file_info if available, otherwise use default
+                    file_info = msg.get("file_info", {})
+                    filename = file_info.get("filename", f"{file_id[:16]}.png")
+                    file_path = media_dir / filename
                     
                     download_result = self._api.download_file(file_id, str(file_path))
                     if download_result.get("success"):
                         media_paths.append(str(file_path))
-                        content_parts.append(f"[image: {file_path}]")
+                        # Add prompt if configured
+                        prompt = chat_config.get_prompt("image") if chat_config else ""
+                        if prompt:
+                            content_parts.append(f"[image: {file_path}] {prompt}")
+                        else:
+                            content_parts.append(f"[image: {file_path}]")
                     else:
                         content_parts.append(f"[image: download failed]")
                 else:
                     content_parts.append(f"[image: {msg_content}]")
+            
             elif msg_type == "file":
                 # Download file if file_id is available
                 file_id = msg.get("file_id")
                 if file_id and self._api:
-                    media_dir = get_media_dir("wxauto")
-                    file_name = msg.get("file_name", f"{file_id[:16]}.bin")
-                    file_path = media_dir / file_name
+                    # Create media directory per chat: wxauto/{chat_name}/
+                    media_dir = get_media_dir(f"wxauto/{chat_name}")
+                    # Get filename from file_info if available, otherwise use default
+                    file_info = msg.get("file_info", {})
+                    filename = file_info.get("filename", f"{file_id[:16]}.bin")
+                    file_path = media_dir / filename
                     
                     download_result = self._api.download_file(file_id, str(file_path))
                     if download_result.get("success"):
                         media_paths.append(str(file_path))
-                        content_parts.append(f"[file: {file_path}]")
+                        # Add prompt if configured
+                        prompt = chat_config.get_prompt("file") if chat_config else ""
+                        if prompt:
+                            content_parts.append(f"[file: {file_path}] {prompt}")
+                        else:
+                            content_parts.append(f"[file: {file_path}]")
                     else:
                         content_parts.append(f"[file: download failed]")
                 else:
                     content_parts.append(f"[file: {msg_content}]")
+            
             elif msg_type == "link":
-                content_parts.append(f"[link: {msg.get('url', msg_content)}]")
+                url = msg.get("url", msg_content)
+                # Add prompt if configured
+                prompt = chat_config.get_prompt("link") if chat_config else ""
+                if prompt:
+                    content_parts.append(f"[link: {url}] {prompt}")
+                else:
+                    content_parts.append(f"[link: {url}]")
+            
             elif msg_type == "voice":
-                content_parts.append(f"[voice: {msg.get('voice_to_text', msg_content)}]")
+                voice_text = msg.get("voice_to_text", msg_content)
+                content_parts.append(f"[voice: {voice_text}]")
+            
             else:
                 content_parts.append(f"[{msg_type}: {msg_content}]")
         
-        content = "\n".join(content_parts) if content_parts else "[empty message]"
+        # If no content parts after filtering, skip this message
+        if not content_parts:
+            logger.debug(f"No processable messages from '{chat_name}' after config filtering")
+            return
+        
+        content = "\n".join(content_parts)
         
         # Generate sender_id (use chat_name for now, could be enhanced)
         sender_id = f"wxauto:{chat_name}"
         
         # Store chat name to ID mapping
         self._chat_name_to_id[sender_id] = chat_name
-        
-        # Check if this is a group message and apply group policy
-        if chat_type == "group" and self.config.group_policy == "mention":
-            # Check if message mentions the bot (for WXAuto, we might need to check content)
-            # For now, we'll accept all group messages in "open" mode only
-            logger.debug(f"key: @{self.config.wxname}")
-            logger.debug(f"content: {content}")
-            if not f"@{self.config.wxname}" in content:
-                logger.debug(f"Group message from '{chat_name}', group_policy is 'mention' - skipping")
-                return
         
         logger.debug("WXAuto message from {}: {}...", chat_name, content[:50])
         
@@ -621,6 +694,7 @@ class WXAutoChannel(BaseChannel):
                 "chat_name": chat_name,
                 "chat_type": chat_type,
                 "message_count": len(messages),
+                "has_mention": has_mention,
                 "raw_data": result.get("raw_data", {})
             }
         )
