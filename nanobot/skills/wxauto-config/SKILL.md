@@ -1,3 +1,10 @@
+---
+name: wxauto_config
+description: 管理 WXAuto 通道的聊天配置，支持添加、删除、修改聊天设置
+author: risingwater
+metadata: {"nanobot": {"emoji": "⚙️", "category": "configuration"}}
+---
+
 # WXAuto Config Skill
 
 管理 WXAuto 通道的聊天配置。

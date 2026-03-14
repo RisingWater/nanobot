@@ -620,7 +620,7 @@ class WXAutoChannel(BaseChannel):
                         # Add prompt if configured
                         prompt = chat_config.get_prompt("image") if chat_config else ""
                         if prompt:
-                            content_parts.append(f"[image: {file_path}] {prompt}")
+                            content_parts.append(f"{prompt} [image: {file_path}]")
                         else:
                             content_parts.append(f"[image: {file_path}]")
                     else:
@@ -645,7 +645,7 @@ class WXAutoChannel(BaseChannel):
                         # Add prompt if configured
                         prompt = chat_config.get_prompt("file") if chat_config else ""
                         if prompt:
-                            content_parts.append(f"[file: {file_path}] {prompt}")
+                            content_parts.append(f"{prompt} [file: {file_path}]")
                         else:
                             content_parts.append(f"[file: {file_path}]")
                     else:
